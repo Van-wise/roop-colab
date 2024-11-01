@@ -1,4 +1,3 @@
-# -- 下载模型 25s
 import os
 import requests
 import zipfile
@@ -16,30 +15,31 @@ models_info = [
 
 def download_model(url, name, path):
     local_path = os.path.join(path, name)
-
-    if os.path.exists(local_path):
-      print(f"{name} 已存在,跳过下载!")
-      return
     try:
-        os.makedirs(path, exist_ok=True)
-        local_path = os.path.join(path, name)
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
-        with open(local_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+        if not os.path.exists(local_path):
+            os.makedirs(path, exist_ok=True)
+            response = requests.get(url, stream=True)
+            response.raise_for_status()
+            with open(local_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=16384):
+                    f.write(chunk)
         print(f"{name} 下载成功!")
         if name == 'buffalo_l.zip':
             extract_zip(local_path,"/content/roop/checkpoints/models/buffalo_l")
+            print(f"{name} 解压成功!")
     except Exception as e:
         print(f"{name} 文件下载错误：{e}")
 
 def download_all_models(models_info):
-    with ThreadPoolExecutor() as executor:
-        executor.map(lambda x: download_model(x[0], x[1], x[2]), models_info)
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        for info in models_info:
+            executor.submit(download_model, *info)
 
 def extract_zip(zip_file_path, extract_path):
-    with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
-        zip_ref.extractall(extract_path)
+    try:
+        with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_path)
+    except Exception as e:
+        print(f"解压 {zip_file_path} 错误: {e}")
 
-download_all_models(models_info)
+#download_all_models(models_info)
