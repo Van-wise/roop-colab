@@ -1,5 +1,7 @@
 # -- 下载模型 26s
 import os
+import sys
+import subprocess
 import requests
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -46,9 +48,6 @@ def extract_zip(zip_file_path, extract_path):
 #download_all_models(models_info)
 
 # -- 修复degradations 3s
-import sys
-import shutil
-
 def fix():
     full_version = sys.version.split(' ')[0]
     major_minor_version = '.'.join(full_version.split('.')[:2])
@@ -56,30 +55,29 @@ def fix():
     local_path = "/content/roop/degradations.py"
     if os.path.exists(local_path):
         try:
-            shutil.copy(local_path, basicsr_path)
+            subprocess.run(["cp", local_path, basicsr_path], check=True)
             print(f"Copied to {basicsr_path}")
-        except Exception as e:
+        except subprocess.CalledProcessError as e:
             print(f"An error occurred during copy: {e}")
-            print("Check the paths and file permissions.")
+            print("Check the command and file permissions.")
+        except Exception as e:
+            print(f"Unexpected error: {e}")
     else:
         print(f"Local file {local_path} not found.")
 
 #fix()
 
 # -- 安装依赖 25s
+import subprocess
+
 def install_dependencies():
-    package_info = [
-        ('onnxruntime_gpu-1.17.0-cp310-cp310-linux_x86_64.whl', '/content/roop/'),
-        ('onnx==1.14.0, insightface==0.7.3, tk==0.1.0, customtkinter==5.2.0, gfpgan==1.3.8, protobuf==3.20.3', ' --no-cache-dir -I '),
-        ('tkinterdnd2-universal==1.7.3, tkinterdnd2==0.3.0', ' --no-cache-dir -I ')
-    ]
-    for info in package_info:
-        install_command = 'pip install --progress-bar off --quiet '+ info[1] + info[0]
-        return_code = os.system(install_command)
-        if return_code == 0:
-            print(f"{info[0]} installed successfully.")
-        else:
-            print(f"Failed to install {info[0]}")
+    for cmd in [
+        '!pip install --progress-bar off --quiet /content/roop/onnxruntime_gpu-1.17.0-cp310-cp310-linux_x86_64.whl',
+        '!pip install --progress-bar off --quiet onnx==1.14.0 insightface==0.7.3 tk==0.1.0 customtkinter==5.2.0 gfpgan==1.3.8 protobuf==3.20.3',
+        '!pip install --progress-bar off --quiet --no-cache-dir -I tkinterdnd2-universal==1.7.3 tkinterdnd2==0.3.0'
+    ]:
+        result = subprocess.run(cmd, shell=True)
+        print(f"{' '.join(cmd.split()[3:])} installed successfully." if result.returncode == 0 else "")
 
 #install_dependencies()
 
