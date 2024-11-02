@@ -74,7 +74,7 @@ def install_dependencies():
         ('tkinterdnd2-universal==1.7.3, tkinterdnd2==0.3.0', ' --no-cache-dir -I ')
     ]
     for info in package_info:
-        install_command = 'pip install --progress-bar off --quiet'+ info[1] + info[0]
+        install_command = 'pip install --progress-bar off --quiet '+ info[1] + info[0]
         return_code = os.system(install_command)
         if return_code == 0:
             print(f"{info[0]} installed successfully.")
