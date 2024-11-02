@@ -45,8 +45,6 @@ def extract_zip(zip_file_path, extract_path):
     except Exception as e:
         print(f"解压 {zip_file_path} 错误: {e}")
 
-#download_all_models(models_info)
-
 # -- 修复degradations 3s
 def fix():
     full_version = sys.version.split(' ')[0]
@@ -65,22 +63,18 @@ def fix():
     else:
         print(f"Local file {local_path} not found.")
 
-#fix()
-
 # -- 安装依赖 25s
 import subprocess
 
 def install_dependencies():
     for cmd in [
-        '!pip install --progress-bar off --quiet /content/roop/onnxruntime_gpu-1.17.0-cp310-cp310-linux_x86_64.whl',
-        '!pip install --progress-bar off --quiet onnx==1.14.0 insightface==0.7.3 tk==0.1.0 customtkinter==5.2.0 gfpgan==1.3.8 protobuf==3.20.3',
-        '!pip install --progress-bar off --quiet --no-cache-dir -I tkinterdnd2-universal==1.7.3 tkinterdnd2==0.3.0'
+        'pip install --progress-bar off --quiet /content/roop/onnxruntime_gpu-1.17.0-cp310-cp310-linux_x86_64.whl',
+        'pip install --progress-bar off --quiet onnx==1.14.0 insightface==0.7.3 tk==0.1.0 customtkinter==5.2.0 gfpgan==1.3.8 protobuf==3.20.3',
+        'pip install --progress-bar off --quiet --no-cache-dir -I tkinterdnd2-universal==1.7.3 tkinterdnd2==0.3.0'
     ]:
         result = subprocess.run(cmd, shell=True)
-        print(f"{' '.join(cmd.split()[3:])} installed successfully." if result.returncode == 0 else "")
-
-#install_dependencies()
-
+        print(f"{' '.join(cmd.split()[5:])} installed successfully." if result.returncode == 0 else "")
+# -- star
 download_all_models(models_info)
 install_dependencies()
 fix()
