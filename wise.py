@@ -5,6 +5,7 @@ import subprocess
 import requests
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from IPython.display import clear_output, display, HTML
 
 models_info = [
     ('https://github.com/karaokenerds/python-audio-separator/releases/download/v0.12.1/onnxruntime_gpu-1.17.0-cp310-cp310-linux_x86_64.whl', 'onnxruntime_gpu-1.17.0-cp310-cp310-linux_x86_64.whl', '/content/roop/'),
@@ -74,6 +75,13 @@ def install_dependencies():
     ]:
         result = subprocess.run(cmd, shell=True)
         print(f"{' '.join(cmd.split()[5:])} installed successfully." if result.returncode == 0 else "")
+
+# -- 手机保持运行 1s
+def mobile_keepalive(opt):
+    if str(opt) == "True":
+        html_code = f'<audio src="https://raw.githubusercontent.com/KoboldAI/KoboldAI-Client/main/colab/silence.m4a" autoplay controls muted></audio>'
+        display(HTML(html_code))
+
 # -- star
 download_all_models(models_info)
 install_dependencies()
