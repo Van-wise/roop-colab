@@ -81,6 +81,20 @@ def mobile_keepalive(opt):
     if str(opt) == "True":
         html_code = f'<audio src="https://raw.githubusercontent.com/KoboldAI/KoboldAI-Client/main/colab/silence.m4a" autoplay controls muted></audio>'
         display(HTML(html_code))
+        
+# -- 挂载云盘 15s
+def content_models(link_google_drive):
+    try:
+        if os.path.exists('/content/drive'):
+            print('谷歌云盘已挂载...')
+        elif link_google_drive:
+            from google.colab import drive
+            drive.mount('/content/drive')
+            print('Google Drive 挂载成功！')
+        else:
+            print('暂时不挂载谷歌云盘...')
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
 # -- star
 download_all_models(models_info)
