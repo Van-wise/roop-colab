@@ -101,84 +101,74 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 from google.colab import files
 from PIL import Image
+from urllib.parse import urlparse
+from pathlib import Path
 
-source = "https://cdn.bncloudfl.com/bn/f62/b4e/976/f62b4e9764dc8773e43ebe6953f765d5c8909ef0.gif"  #@param {type:"string"}
+def clean_url(url):
+    parsed_url = urlparse(url)
+    return f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
 
-def display_image(source):
-    image_path = None  # 先初始化图片路径为None
-    target_folder = "/content/source"  # 定义保存图片的文件夹路径
-    os.makedirs(target_folder, exist_ok=True)  # 创建文件夹（如果不存在）
-
-    if not source:  # 如果source为空，启用colab上传功能
+def get_image(source, target_folder):
+    if not source:
         uploaded = files.upload()
-        if uploaded:  # 确保有文件上传成功
-            for fn in uploaded.keys():
-                file_extension = os.path.splitext(fn)[1]  # 获取文件扩展名
-                allowed_extensions = ['.jpg', '.png']  # 定义允许的文件扩展名列表
-                if file_extension.lower() not in allowed_extensions:
-                    print(f"文件 {fn} 格式错误，仅支持jpg或png格式，请重新上传！")
-                    return
-                base_name = os.path.splitext(fn)[0]
-                new_fn = base_name + ".jpg"  # 统一转换为jpg格式的文件名
-                count = 1
-                while os.path.exists(os.path.join(target_folder, new_fn)):
-                    new_fn = f"{base_name}_{count}.jpg"
-                    count += 1
-                image_path = os.path.join(target_folder, new_fn)
-                # 先以原格式打开图片，再转换为jpg格式并保存
-                with Image.open(uploaded[fn]) as im:
-                    im.convert('RGB').save(image_path)
-    elif source.startswith('/content/'):  # 如果是colab文件路径
-        if os.path.exists(source):  # 先判断文件是否存在
-            file_extension = os.path.splitext(source)[1]
-            allowed_extensions = ['.jpg', '.png']
-            if file_extension.lower() not in allowed_extensions:
-                print(f"文件 {source} 格式错误，仅支持jpg或png格式，请检查文件！")
-                return
-            if file_extension.lower()!= ".jpg":  # 如果不是jpg格式，进行转换
-                base_name = os.path.splitext(source)[0]
-                new_source = base_name + ".jpg"
-                with Image.open(source) as im:
-                    im.convert('RGB').save(new_source)
-                image_path = new_source
-            else:
-                image_path = source
-        else:
-            print(f" {source} 文件不存在，请检查路径是否正确！")
-            return
-    else:  # 否则，尝试下载网络图片
-        try:
-            response = requests.get(source, stream=True)
-            response.raise_for_status()  # 检查请求是否成功
-            file_name = os.path.basename(source)
-            file_extension = os.path.splitext(file_name)[1]
-            allowed_extensions = ['.jpg', '.png']
-            if file_extension.lower() not in allowed_extensions:
-                print(f"文件 {source} 格式错误，仅支持jpg或png格式，请更换图片链接！")
-                return
-            base_name = os.path.splitext(file_name)[0]
-            new_fn = base_name + ".jpg"  # 统一转换为jpg格式的文件名
-            image_path = os.path.join(target_folder, new_fn)
-            with open(image_path, 'wb') as out_file:
-                for chunk in response.iter_content(1024):
-                    out_file.write(chunk)
-            with Image.open(image_path) as im:
-                im.convert('RGB').save(image_path)
-        except requests.exceptions.RequestException as e:
-            print(f"加载图片失败: {e}")
-            return
+        if not uploaded:
+            raise ValueError("用户已取消上传！")
+        return Path('/content') / next(iter(uploaded.keys()))
+        
+    if source.startswith('/content/'):
+        if not os.path.exists(source):
+            raise FileNotFoundError(f"文件 {source} 不存在！")
+        return Path(source)
+        
+    try:
+        cleaned_url = clean_url(source)
+        response = requests.get(cleaned_url, stream=True)
+        response.raise_for_status()
+        
+        image_path = Path(target_folder) / Path(cleaned_url).name
+        with open(image_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        return image_path
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"下载图片失败: {e}")
 
-    if image_path:  # 确保获取到了有效的图片路径后再显示图片
-        try:        # 显示图片
-            img = mpimg.imread(image_path)
-            plt.imshow(img)
+def convert_image_format(image_path, target_folder, allowed_extensions=('.jpg', '.png', '.jpeg', '.gif', '.bmp', '.webp')):
+    if not image_path:
+        raise ValueError("图片不存在！")
+    
+    if image_path.suffix.lower() not in allowed_extensions:
+        raise ValueError(f"不支持的文件格式 {image_path}，支持的格式有: {', '.join(allowed_extensions)}")
+    
+    new_path = Path(target_folder) / f"{image_path.stem}.jpg"
+    counter = 1
+    while new_path.exists():
+        new_path = Path(target_folder) / f"{image_path.stem}_{counter}.jpg"
+        counter += 1
+    
+    try:
+        Image.open(image_path).convert('RGB').save(new_path, quality=95)
+        return new_path
+    except Exception as e:
+        raise RuntimeError(f"图片格式转换失败: {e}")
+
+def display_image(source, show_image=True):
+    target_folder = Path("/content/source")
+    target_folder.mkdir(exist_ok=True)
+    
+    try:
+        image_path = get_image(source, target_folder)
+        converted_path = convert_image_format(image_path, target_folder)
+        
+        if show_image:
+            plt.imshow(mpimg.imread(converted_path))
             plt.axis('off')
             plt.show()
-            return image_path
-        except Exception as e:
-            print(f"显示图片时出错: {e}")
-    else:
-        print("未能获取到有效的图片路径，无法显示图片。")
+            
+        return str(converted_path)
+    except Exception as e:
+        print(f"图片处理失败: {e}")
+        return None
 
 # -- star
 download_all_models(models_info)
