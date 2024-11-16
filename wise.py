@@ -104,7 +104,6 @@ from urllib.parse import urlparse
 from pathlib import Path
 import moviepy.editor as mp
 from base64 import b64encode
-from IPython.display import HTML, display
 
 def clean_url(url):
     parsed = urlparse(url)
@@ -254,15 +253,6 @@ def display_media(source, show_media=True, save_to_path=1, preview_duration=10):
     except Exception as e:
         print(e)
         return None
-
-# For URL sources
-url11 = "/content/5e5d002541ec5.vid"  #@param {type:"string"}
-show_media = True # @param {"type":"boolean"}
-save_to_path = 2 # @param {"type":"integer","placeholder":"1"}
-result_path = display_media(url11, show_media, save_to_path)
-
-if result_path:
-  print(f"当前人脸素材路径为: {result_path}")
 
 # -- star
 download_all_models(models_info)
