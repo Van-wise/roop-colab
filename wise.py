@@ -238,13 +238,17 @@ def display_video(media_path, preview_duration=10):
     </video>
     '''))
 
-def display_media(source, show_media=True, save_to_path=1, preview_duration=10):  
-    target_folder = Path("/content/target")
+def display_media(source, show_media=True, save_to_path=1, preview_duration=10):
+    target_folder = None
+    if save_to_path == 1:
+        target_folder = Path("/content/source")
+    elif save_to_path == 2:
+        target_folder = Path("/content/target")
     target_folder.mkdir(exist_ok=True)
     try:
-        media_path = get_media(source, save_to_path) 
+        media_path = get_media(source, save_to_path)
         media_path = convert_media_format(media_path, target_folder)
-        if show_media:  
+        if show_media:
             if media_path.suffix.lower() in ('.jpg', '.png', '.jpeg', '.gif', '.bmp', '.webp'):
                 display_image(media_path)
             elif media_path.suffix.lower() in ('.mp4', '.avi', '.mov', '.mkv'):
