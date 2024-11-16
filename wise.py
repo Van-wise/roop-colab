@@ -65,8 +65,6 @@ def fix():
         print(f"Local file {local_path} not found.")
 
 # -- 安装依赖 25s
-import subprocess
-
 def install_dependencies():
     for cmd in [
         'pip install --progress-bar off --quiet /content/roop/onnxruntime_gpu-1.17.0-cp310-cp310-linux_x86_64.whl',
@@ -96,79 +94,175 @@ def content_models(link_google_drive):
     except Exception as e:
         print(f"An error occurred: {e}")
         
-# -- 确定人脸图片路径 3s
+# -- 确定素材路径 20s
+import time
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 from google.colab import files
 from PIL import Image
 from urllib.parse import urlparse
 from pathlib import Path
+import moviepy.editor as mp
+from base64 import b64encode
+from IPython.display import HTML, display
 
 def clean_url(url):
-    parsed_url = urlparse(url)
-    return f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+    parsed = urlparse(url)
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
-def get_image(source, target_folder):
+def generate_unique_path(base_path):
+    counter = 1
+    new_path = base_path
+    while new_path.exists():
+        new_path = base_path.with_stem(f"{base_path.stem}_{counter}")
+        counter += 1
+    return new_path
+
+def download_media(url, target_folder, max_file_size=100 * 1024 * 1024, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            cleaned = clean_url(url)
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Referer': urlparse(cleaned).netloc,
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
+            }
+            head_response = requests.head(cleaned, headers=headers, allow_redirects=True)
+            head_response.raise_for_status()
+            content_length = int(head_response.headers.get('Content-Length', 0))
+            if content_length > max_file_size:
+                file_size_mb = content_length / (1024 * 1024)
+                raise ValueError(f"文件过大！当前文件大小: {file_size_mb:.2f} MB，最大允许大小: {max_file_size / (1024 * 1024)} MB。建议：1. 使用网盘分享链接；2. 压缩文件；3. 选择更小的媒体文件。")
+            response = requests.get(cleaned, headers=headers, stream=True, timeout=60, allow_redirects=True)
+            response.raise_for_status()
+            media_path = Path(target_folder) / Path(cleaned).name
+            media_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(media_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=32768):
+                    if chunk:
+                        f.write(chunk)
+            return media_path
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+            else:
+                raise RuntimeError(f"下载媒体文件失败: {e}") from e
+
+def get_local_media(source):
+    if not os.path.exists(source):
+        raise FileNotFoundError(f"文件 {source} 不存在！")
+    return Path(source)
+
+def get_media(source, save_to_path=1, max_file_size=100 * 1024 * 1024, max_retries=3): 
     if not source:
         uploaded = files.upload()
         if not uploaded:
             raise ValueError("用户已取消上传！")
         return Path('/content') / next(iter(uploaded.keys()))
-        
     if source.startswith('/content/'):
-        if not os.path.exists(source):
-            raise FileNotFoundError(f"文件 {source} 不存在！")
-        return Path(source)
-        
-    try:
-        cleaned_url = clean_url(source)
-        response = requests.get(cleaned_url, stream=True)
-        response.raise_for_status()
-        
-        image_path = Path(target_folder) / Path(cleaned_url).name
-        with open(image_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        return image_path
-    except requests.exceptions.RequestException as e:
-        raise RuntimeError(f"下载图片失败: {e}")
+        return get_local_media(source)
+    if save_to_path == 1:
+        return download_media(source, '/content/source', max_file_size, max_retries)
+    elif save_to_path == 2:
+        return download_media(source, '/content/target', max_file_size, max_retries)
+    else:
+        raise ValueError("save_to_path 参数的值必须为 1 或 2！")
 
-def convert_image_format(image_path, target_folder, allowed_extensions=('.jpg', '.png', '.jpeg', '.gif', '.bmp', '.webp')):
-    if not image_path:
-        raise ValueError("图片不存在！")
-    
-    if image_path.suffix.lower() not in allowed_extensions:
-        raise ValueError(f"不支持的文件格式 {image_path}，支持的格式有: {', '.join(allowed_extensions)}")
-    
-    new_path = Path(target_folder) / f"{image_path.stem}.jpg"
-    counter = 1
-    while new_path.exists():
-        new_path = Path(target_folder) / f"{image_path.stem}_{counter}.jpg"
-        counter += 1
-    
+def convert_image_format(media_path, target_folder):
+    if media_path.suffix.lower()!= '.jpg':
+        new_path = generate_unique_path(Path(target_folder) / f"{media_path.stem}.jpg")
+        try:
+            img = Image.open(media_path).convert('RGB')
+            img.save(new_path, quality=95)
+            return new_path
+        except Exception as e:
+            raise RuntimeError(f"图片格式转换失败: {e}") from e
+    return media_path
+
+def convert_video_format(media_path, target_folder):
+    if media_path.suffix.lower() == '.mp4':
+        return media_path
+    new_path = generate_unique_path(Path(target_folder) / f"{media_path.stem}.mp4")
     try:
-        Image.open(image_path).convert('RGB').save(new_path, quality=95)
+        video = mp.VideoFileClip(str(media_path))
+        video.write_videofile(str(new_path), codec='libx264')
+        video.close()
         return new_path
     except Exception as e:
-        raise RuntimeError(f"图片格式转换失败: {e}")
+        raise RuntimeError(f"视频格式转换失败: {e}") from e
 
-def display_image(source, show_image=True):
-    target_folder = Path("/content/source")
-    target_folder.mkdir(exist_ok=True)
-    
+def convert_media_format(media_path, target_folder, image_extensions=('.jpg', '.png', '.jpeg', '.gif', '.bmp', '.webp'), video_extensions=('.mp4', '.avi', '.mov', '.mkv')):
+    if not media_path:
+        raise ValueError("媒体文件不存在！")
+    if media_path.suffix.lower() in image_extensions:
+        return convert_image_format(media_path, target_folder)
+    elif media_path.suffix.lower() in video_extensions:
+        return convert_video_format(media_path, target_folder)
+    raise ValueError(f"不支持的文件格式: {media_path}")
+
+def display_image(media_path):
+    plt.figure(figsize=(4, 3)) 
+    plt.imshow(mpimg.imread(media_path))
+    plt.axis('off')
+    plt.show()
+
+def display_video(media_path, preview_duration=10):
+    preview_path = str(media_path).replace('.mp4', '_preview.mp4')
     try:
-        image_path = get_image(source, target_folder)
-        converted_path = convert_image_format(image_path, target_folder)
-        
-        if show_image:
-            plt.imshow(mpimg.imread(converted_path))
-            plt.axis('off')
-            plt.show()
-            
-        return str(converted_path)
+        subprocess.run([
+            'ffmpeg',
+            '-i', str(media_path),
+            '-t', str(preview_duration),
+            '-c', 'copy',
+            preview_path
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError:
+        subprocess.run([
+            'ffmpeg',
+            '-i', str(media_path),
+            '-t', str(preview_duration),
+            '-c:v', 'libx264',
+            '-c:a', 'aac',
+            preview_path
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    with open(preview_path, 'rb') as f:
+        video_data = f.read()
+    os.remove(preview_path)
+    data_url = "data:video/mp4;base64," + b64encode(video_data).decode()
+    display(HTML(f'''
+    <video width=300 height=200 controls>  
+        <source src="{data_url}" type="video/mp4">
+    </video>
+    '''))
+
+def display_media(source, show_media=True, save_to_path=1, preview_duration=10):  
+    target_folder = Path("/content/target")
+    target_folder.mkdir(exist_ok=True)
+    try:
+        media_path = get_media(source, save_to_path) 
+        media_path = convert_media_format(media_path, target_folder)
+        if show_media:  
+            if media_path.suffix.lower() in ('.jpg', '.png', '.jpeg', '.gif', '.bmp', '.webp'):
+                display_image(media_path)
+            elif media_path.suffix.lower() in ('.mp4', '.avi', '.mov', '.mkv'):
+                display_video(media_path, preview_duration)
+        return str(media_path)
     except Exception as e:
-        print(f"图片处理失败: {e}")
+        print(e)
         return None
+
+# For URL sources
+url11 = "/content/5e5d002541ec5.vid"  #@param {type:"string"}
+show_media = True # @param {"type":"boolean"}
+save_to_path = 2 # @param {"type":"integer","placeholder":"1"}
+result_path = display_media(url11, show_media, save_to_path)
+
+if result_path:
+  print(f"当前人脸素材路径为: {result_path}")
 
 # -- star
 download_all_models(models_info)
