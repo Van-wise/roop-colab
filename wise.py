@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from IPython.display import clear_output, display, HTML
 
 models_info = [
-    ('https://files.pythonhosted.org/packages/2b/94/2a2c05b5e8e5359e0c2cbb314d39e259d7e9853af768fbc0f7485d7ddcb5/onnxruntime_gpu-1.17.0-cp311-cp311-manylinux_2_28_x86_64.whl', 'onnxruntime_gpu-1.17.0-cp311-cp311-manylinux_2_28_x86_64.whl', '/content/roop/'),
+    ('https://github.com/karaokenerds/python-audio-separator/releases/download/v0.12.1/onnxruntime_gpu-1.17.0-cp310-cp310-linux_x86_64.whl', 'onnxruntime_gpu-1.17.0-cp310-cp310-linux_x86_64.whl', '/content/roop/'),
     ('https://huggingface.co/countfloyd/deepfake/resolve/main/inswapper_128.onnx', 'inswapper_128.onnx', '/content/roop/checkpoints/'),
     ('https://github.com/Hillobar/Rope/releases/download/Sapphire/inswapper_128.fp16.onnx', 'inswapper_128.fp16.onnx', '/content/roop/checkpoints/'),
     ('https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip', 'buffalo_l.zip', '/content/'),
@@ -67,8 +67,7 @@ def fix():
 # -- 安装依赖 25s
 def install_dependencies():
     for cmd in [
-        'pip install --progress-bar off --quiet /content/roop/onnxruntime_gpu-1.17.0-cp311-cp311-manylinux_2_28_x86_64.whl',
-        #'pip install --progress-bar off --quiet onnxruntime-gpu==1.17.0',
+        'pip install --progress-bar off --quiet /content/roop/onnxruntime_gpu-1.17.0-cp310-cp310-linux_x86_64.whl',
         'pip install --progress-bar off --quiet onnx==1.14.0 insightface==0.7.3 tk==0.1.0 customtkinter==5.2.0 gfpgan==1.3.8 protobuf==3.20.3',
         'pip install --progress-bar off --quiet --no-cache-dir -I tkinterdnd2-universal==1.7.3 tkinterdnd2==0.3.0'
     ]:
