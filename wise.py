@@ -66,13 +66,27 @@ def fix():
 
 # -- 安装依赖 25s
 def install_dependencies():
-    for cmd in [
-        'pip install --progress-bar off --quiet onnxruntime-gpu',
-        'pip install --progress-bar off --quiet onnx==1.14.0 insightface==0.7.3 tk==0.1.0 customtkinter==5.2.0 gfpgan==1.3.8 protobuf==3.20.3',
-        'pip install --progress-bar off --quiet --no-cache-dir -I tkinterdnd2-universal==1.7.3 tkinterdnd2==0.3.0'
-    ]:
-        result = subprocess.run(cmd, shell=True)
-        print(f"{' '.join(cmd.split()[5:])} installed successfully." if result.returncode == 0 else "")
+    # 适度拆分命令（只拆容易冲突的部分）
+    commands = [
+        'pip install --quiet onnxruntime-gpu',
+        'pip install --quiet onnx==1.14.0 insightface==0.7.3',  # 核心关联包放一起
+        'pip install --quiet tk==0.1.0 customtkinter==5.2.0',   # GUI相关包放一起
+        'pip install --quiet gfpgan==1.3.8 protobuf==3.20.3',
+        'pip install --quiet --no-cache-dir -I tkinterdnd2-universal==1.7.3 tkinterdnd2==0.3.0'
+    ]
+    
+    for cmd in commands:
+        # 执行命令并捕获输出
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        # 提取包名（取第一个非选项参数后的内容）
+        packages = ' '.join(p for p in cmd.split() if not p.startswith('--'))
+        
+        if result.returncode == 0:
+            print(f"✅ 成功安装: {packages}")
+        else:
+            print(f"❌ 安装失败: {packages}")
+            print(f"错误: {result.stderr.splitlines()[-1]}")  # 只显示最后一行关键错误
+            return  # 失败即停，避免连锁问题
 
 # -- 手机保持运行 1s
 def mobile_keepalive(opt):
