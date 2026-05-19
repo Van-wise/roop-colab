@@ -71,12 +71,12 @@ def install_dependencies():
         # 命令1：安装onnxruntime-gpu
         'pip install --progress-bar off --quiet onnxruntime-gpu',
         # 命令2：拆分原第二个命令为多个，逐个安装（更容易定位问题）
-        'pip install --progress-bar off --quiet onnx==1.14.0',
+        'pip install --progress-bar off --quiet onnx',
         'pip install --progress-bar off --quiet insightface==0.7.3',
         'pip install --progress-bar off --quiet tk==0.1.0',
         'pip install --progress-bar off --quiet customtkinter==5.2.0',
         'pip install --progress-bar off --quiet gfpgan==1.3.8',
-        'pip install --progress-bar off --quiet protobuf==3.20.3',
+        'pip install --progress-bar off --quiet "protobuf>=5.28.0,<6.0"',
         # 命令3：原第三个命令
         'pip install --progress-bar off --quiet --no-cache-dir -I tkinterdnd2-universal==1.7.3 tkinterdnd2==0.3.0'
     ]
