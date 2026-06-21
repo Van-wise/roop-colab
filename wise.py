@@ -69,7 +69,7 @@ def install_dependencies():
     # 拆分较长的命令，避免一次性安装过多包导致冲突
     commands = [
         # 命令1：安装onnxruntime-gpu
-        'pip install --progress-bar off --quiet onnxruntime-gpu',
+        'pip install --progress-bar off --quiet onnxruntime-gpu==1.20.1',
         # 命令2：拆分原第二个命令为多个，逐个安装（更容易定位问题）
         'pip install --progress-bar off --quiet onnx',
         'pip install --progress-bar off --quiet insightface==0.7.3',
