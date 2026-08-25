@@ -75,7 +75,9 @@ def install_dependencies():
         'pip install --progress-bar off --quiet insightface==0.7.3',
         'pip install --progress-bar off --quiet tk==0.1.0',
         'pip install --progress-bar off --quiet customtkinter==5.2.0',
-        'pip install --progress-bar off --quiet gfpgan==1.3.8',
+        'pip install --progress-bar off --quiet --no-build-isolation git+https://github.com/Disty0/BasicSR.git@master',
+        'pip install --progress-bar off --quiet --no-build-isolation --no-deps git+https://github.com/Disty0/GFPGAN.git@master',
+        'pip install --progress-bar off --quiet facexlib',
         'pip install --progress-bar off --quiet "protobuf>=5.28.0,<6.0"',
         # 命令3：原第三个命令
         'pip install --progress-bar off --quiet --no-cache-dir -I tkinterdnd2-universal==1.7.3 tkinterdnd2==0.3.0'
@@ -132,6 +134,48 @@ from google.colab import files
 from PIL import Image
 from urllib.parse import urlparse
 from pathlib import Path
+# ===== [patch] moviepy 兼容层
+import subprocess as _sp
+import sys as _sys
+import pathlib as _pl
+_sp.run([_sys.executable, '-m', 'pip', 'install', '-U', 'setuptools', 'wheel', 'pip'], check=False)
+_sp.run([_sys.executable, '-m', 'pip', 'install', '-U', 'moviepy', 'imageio-ffmpeg'], check=False)
+_mv = __import__('moviepy')
+_pkg = _pl.Path(_mv.__file__).parent
+_editor = r'''import moviepy as _m
+from moviepy import *
+
+
+def _pull(name):
+    if name in globals():
+        return
+    obj = getattr(_m, name, None)
+    if obj is not None:
+        globals()[name] = obj
+        return
+    import importlib
+    import pkgutil
+    for _im, _mn, _ispkg in pkgutil.walk_packages(_m.__path__, _m.__name__ + '.'):
+        try:
+            mod = importlib.import_module(_mn)
+        except Exception:
+            continue
+        if hasattr(mod, name):
+            globals()[name] = getattr(mod, name)
+            return
+
+
+for _n in [
+    'VideoFileClip', 'AudioFileClip', 'ImageClip', 'ColorClip', 'TextClip',
+    'VideoClip', 'CompositeVideoClip', 'AudioClip', 'AudioArrayClip',
+    'CompositeAudioClip', 'concatenate_videoclips', 'clips_array',
+    'ImageSequenceClip',
+]:
+    _pull(_n)
+'''
+(_pkg / 'editor.py').write_text(_editor)
+del _sp, _sys, _pl, _mv, _pkg
+
 import moviepy.editor as mp
 from base64 import b64encode
 
@@ -292,3 +336,23 @@ def display_media(source, show_media=True, save_to_path=1, preview_duration=10):
 download_all_models(models_info)
 install_dependencies()
 fix()
+# ===== [patch] 屏蔽 roop GUI，避免 tkinterdnd2/tix 在 py3.13 崩溃 =====
+def patch_core():
+    core = Path('/content/roop/roop/core.py')
+    if not core.exists():
+        print('未找到 core.py，跳过 headless 补丁')
+        return
+    s = core.read_text()
+    ui_block = '''# [patch] headless
+class _NoUI:
+    def __getattr__(self, _n):
+        return lambda *_a, **_k: None
+ui = _NoUI()'''
+    for v in ["import roop.ui as ui", "import roop.ui", "from roop import ui"]:
+        if v in s:
+            s = s.replace(v, ui_block)
+            break
+    core.write_text(s)
+    print('[patch] core.py 已补丁(headless)')
+
+patch_core()
