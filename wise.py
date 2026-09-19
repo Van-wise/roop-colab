@@ -78,7 +78,7 @@ def install_dependencies():
         'pip install --progress-bar off --quiet --no-build-isolation git+https://github.com/Disty0/BasicSR.git@master',
         'pip install --progress-bar off --quiet --no-build-isolation --no-deps git+https://github.com/Disty0/GFPGAN.git@master',
         'pip install --progress-bar off --quiet facexlib',
-        'pip install --progress-bar off --quiet "protobuf>=5.28.0,<6.0"',
+        'pip install --progress-bar off --quiet "protobuf>=6.31.1"',
         # 命令3：原第三个命令
         'pip install --progress-bar off --quiet --no-cache-dir -I tkinterdnd2-universal==1.7.3 tkinterdnd2==0.3.0'
     ]
