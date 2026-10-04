@@ -1,7 +1,89 @@
-# -- 下载模型 26s
+# -- CUDA 环境准备
 import os
 import sys
+import glob
 import subprocess
+
+def prepare_cuda_environment():
+    cuda_packages = [
+        "nvidia-cuda-nvrtc-cu12",
+        "nvidia-cuda-runtime-cu12",
+        "nvidia-cublas-cu12",
+        "nvidia-cudnn-cu12",
+    ]
+
+    nvidia_roots = glob.glob(
+        "/usr/local/lib/python*/dist-packages/nvidia"
+    ) + glob.glob(
+        "/usr/local/lib/python*/site-packages/nvidia"
+    )
+
+    missing_packages = not nvidia_roots
+
+    if missing_packages:
+        for package in cuda_packages:
+            print(f"正在安装 CUDA 依赖: {package}")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--quiet",
+                    "--no-cache-dir",
+                    package,
+                ],
+                text=True
+            )
+
+            if result.returncode != 0:
+                raise RuntimeError(f"CUDA 依赖安装失败: {package}")
+
+        nvidia_roots = glob.glob(
+            "/usr/local/lib/python*/dist-packages/nvidia"
+        ) + glob.glob(
+            "/usr/local/lib/python*/site-packages/nvidia"
+        )
+
+    if not nvidia_roots:
+        raise RuntimeError("没有找到 NVIDIA Python CUDA 库目录")
+
+    nvidia_root = nvidia_roots[0]
+
+    cuda_paths = [
+        f"{nvidia_root}/cuda_nvrtc/lib",
+        f"{nvidia_root}/cuda_runtime/lib",
+        f"{nvidia_root}/cublas/lib",
+        f"{nvidia_root}/cudnn/lib",
+        f"{nvidia_root}/cufft/lib",
+        f"{nvidia_root}/curand/lib",
+        f"{nvidia_root}/cusolver/lib",
+        f"{nvidia_root}/cusparse/lib",
+        f"{nvidia_root}/nccl/lib",
+        f"{nvidia_root}/nvjitlink/lib",
+        "/usr/lib64-nvidia",
+    ]
+
+    old_ld = os.environ.get("LD_LIBRARY_PATH", "")
+
+    all_paths = cuda_paths.copy()
+
+    if old_ld:
+        all_paths.extend(old_ld.split(":"))
+
+    all_paths = [
+        path for path in all_paths
+        if path and os.path.isdir(path)
+    ]
+
+    all_paths = list(dict.fromkeys(all_paths))
+
+    os.environ["LD_LIBRARY_PATH"] = ":".join(all_paths)
+
+    print("CUDA 环境准备完成")
+    print("LD_LIBRARY_PATH 已设置")
+
+# -- 下载模型 26s
 import requests
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -48,30 +130,46 @@ def extract_zip(zip_file_path, extract_path):
 
 # -- 修复degradations 3s
 def fix():
-    full_version = sys.version.split(' ')[0]
-    major_minor_version = '.'.join(full_version.split('.')[:2])
-    basicsr_path = f"/usr/local/lib/python{major_minor_version}/dist-packages/basicsr/data/degradations.py"
     local_path = "/content/roop/degradations.py"
-    if os.path.exists(local_path):
-        try:
-            subprocess.run(["cp", local_path, basicsr_path], check=True)
-            print(f"Copied to {basicsr_path}")
-        except subprocess.CalledProcessError as e:
-            print(f"An error occurred during copy: {e}")
-            print("Check the command and file permissions.")
-        except Exception as e:
-            print(f"Unexpected error: {e}")
-    else:
+
+    if not os.path.exists(local_path):
         print(f"Local file {local_path} not found.")
+        return
+
+    candidates = glob.glob(
+        "/usr/local/lib/python*/dist-packages/basicsr/data/degradations.py"
+    ) + glob.glob(
+        "/usr/local/lib/python*/site-packages/basicsr/data/degradations.py"
+    )
+
+    if not candidates:
+        print("未找到 basicsr/data/degradations.py，跳过复制。")
+        return
+
+    try:
+        subprocess.run(
+            ["cp", local_path, candidates[0]],
+            check=True
+        )
+        print(f"Copied to {candidates[0]}")
+    except Exception as e:
+        print(f"复制 degradations.py 失败: {e}")
+
 
 # -- 安装依赖 25s
 def install_dependencies():
     # 拆分较长的命令，避免一次性安装过多包导致冲突
     commands = [
-        # 命令1：安装onnxruntime-gpu
-        'pip install --progress-bar off --quiet onnxruntime-gpu==1.20.2',
-        # 命令2：拆分原第二个命令为多个，逐个安装（更容易定位问题）
+        # CUDA 12 运行库
+        'pip install --progress-bar off --quiet --no-cache-dir nvidia-cuda-nvrtc-cu12',
+        'pip install --progress-bar off --quiet --no-cache-dir nvidia-cuda-runtime-cu12',
+        'pip install --progress-bar off --quiet --no-cache-dir nvidia-cublas-cu12',
+        'pip install --progress-bar off --quiet --no-cache-dir nvidia-cudnn-cu12',
+        # ONNX Runtime GPU
+         'pip install --progress-bar off --quiet onnxruntime-gpu==1.20.2',
+        # ONNX
         'pip install --progress-bar off --quiet onnx',
+        #other
         'pip install --progress-bar off --quiet insightface==0.7.3',
         'pip install --progress-bar off --quiet tk==0.1.0',
         'pip install --progress-bar off --quiet customtkinter==5.2.0',
@@ -79,7 +177,6 @@ def install_dependencies():
         'pip install --progress-bar off --quiet --no-build-isolation --no-deps git+https://github.com/Disty0/GFPGAN.git@master',
         'pip install --progress-bar off --quiet facexlib',
         'pip install --progress-bar off --quiet "protobuf>=6.31.1"',
-        # 命令3：原第三个命令
         'pip install --progress-bar off --quiet --no-cache-dir -I tkinterdnd2-universal==1.7.3 tkinterdnd2==0.3.0'
     ]
     
@@ -335,6 +432,7 @@ def display_media(source, show_media=True, save_to_path=1, preview_duration=10):
 # -- star
 download_all_models(models_info)
 install_dependencies()
+prepare_cuda_environment()
 fix()
 # ===== [patch] 屏蔽 roop GUI，避免 tkinterdnd2/tix 在 py3.13 崩溃 =====
 def patch_core():
