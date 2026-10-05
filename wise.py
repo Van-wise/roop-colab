@@ -196,7 +196,7 @@ def install_dependencies():
         'pip install --progress-bar off --quiet --no-build-isolation git+https://github.com/Disty0/BasicSR.git@master',
         'pip install --progress-bar off --quiet --no-build-isolation --no-deps git+https://github.com/Disty0/GFPGAN.git@master',
         'pip install --progress-bar off --quiet facexlib',
-        'pip install --progress-bar off --quiet "protobuf>=6.31.1"',
+        'pip install --progress-bar off --quiet "protobuf>=5.26.0,<6"',
         'pip install --progress-bar off --quiet --no-cache-dir -I tkinterdnd2-universal==1.7.3 tkinterdnd2==0.3.0'
     ]
 
@@ -538,8 +538,8 @@ def patch_core():
     print('[patch] core.py 已补丁(headless)')
 
 # -- star
-download_all_models(models_info)
-install_dependencies()
 prepare_cuda_environment()
+install_dependencies()
 fix()
 patch_core()
+download_all_models(models_info)
