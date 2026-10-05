@@ -12,45 +12,39 @@ def prepare_cuda_environment():
         "nvidia-cudnn-cu12",
     ]
 
-    nvidia_roots = glob.glob(
-        "/usr/local/lib/python*/dist-packages/nvidia"
-    ) + glob.glob(
-        "/usr/local/lib/python*/site-packages/nvidia"
-    )
+    # 始终确保 CUDA 12 依赖安装完成
+    for package in cuda_packages:
+        print(f"正在检查/安装 CUDA 依赖: {package}")
 
-    missing_packages = not nvidia_roots
-
-    if missing_packages:
-        for package in cuda_packages:
-            print(f"正在安装 CUDA 依赖: {package}")
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "pip",
-                    "install",
-                    "--quiet",
-                    "--no-cache-dir",
-                    package,
-                ],
-                text=True
-            )
-
-            if result.returncode != 0:
-                raise RuntimeError(f"CUDA 依赖安装失败: {package}")
-
-        nvidia_roots = glob.glob(
-            "/usr/local/lib/python*/dist-packages/nvidia"
-        ) + glob.glob(
-            "/usr/local/lib/python*/site-packages/nvidia"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--no-cache-dir",
+                package,
+            ],
+            text=True,
+            capture_output=True
         )
 
+        if result.returncode != 0:
+            print(result.stderr)
+            raise RuntimeError(f"CUDA 依赖安装失败: {package}")
+
+    nvidia_roots = (
+        glob.glob("/usr/local/lib/python*/dist-packages/nvidia")
+        + glob.glob("/usr/local/lib/python*/site-packages/nvidia")
+    )
+
     if not nvidia_roots:
-        raise RuntimeError("没有找到 NVIDIA Python CUDA 库目录")
+        raise RuntimeError("没有找到 NVIDIA CUDA 库目录")
 
     nvidia_root = nvidia_roots[0]
 
-    cuda_paths = [
+    cuda12_paths = [
         f"{nvidia_root}/cuda_nvrtc/lib",
         f"{nvidia_root}/cuda_runtime/lib",
         f"{nvidia_root}/cublas/lib",
@@ -64,24 +58,29 @@ def prepare_cuda_environment():
         "/usr/lib64-nvidia",
     ]
 
-    old_ld = os.environ.get("LD_LIBRARY_PATH", "")
-
-    all_paths = cuda_paths.copy()
-
-    if old_ld:
-        all_paths.extend(old_ld.split(":"))
-
-    all_paths = [
-        path for path in all_paths
-        if path and os.path.isdir(path)
+    cuda12_paths = [
+        path for path in cuda12_paths
+        if os.path.isdir(path)
     ]
 
-    all_paths = list(dict.fromkeys(all_paths))
+    # 清理旧 LD_LIBRARY_PATH，避免 CUDA 13 路径优先或混用
+    old_paths = os.environ.get("LD_LIBRARY_PATH", "").split(":")
 
-    os.environ["LD_LIBRARY_PATH"] = ":".join(all_paths)
+    filtered_old_paths = [
+        path for path in old_paths
+        if path
+        and os.path.isdir(path)
+        and "/site-packages/nvidia/" not in path
+        and "/dist-packages/nvidia/" not in path
+    ]
 
-    print("CUDA 环境准备完成")
-    print("LD_LIBRARY_PATH 已设置")
+    final_paths = list(dict.fromkeys(cuda12_paths + filtered_old_paths))
+
+    os.environ["LD_LIBRARY_PATH"] = ":".join(final_paths)
+
+    print("CUDA 12 环境准备完成")
+    print("LD_LIBRARY_PATH:")
+    print(os.environ["LD_LIBRARY_PATH"])
 
 # -- 下载模型 26s
 import requests
@@ -101,32 +100,58 @@ models_info = [
 
 def download_model(url, name, path):
     local_path = os.path.join(path, name)
-    try:
-        if not os.path.exists(local_path):
+    tmp_path = local_path + '.part'
+
+    # [修复] 已存在的文件不再重复下载；下载失败也不再静默，统一向上抛出
+    if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+        print(f"{name} 已存在，跳过下载")
+    else:
+        try:
             os.makedirs(path, exist_ok=True)
             response = requests.get(url, stream=True)
             response.raise_for_status()
-            with open(local_path, 'wb') as f:
+            # [修复] 先写临时文件再原子替换，避免中断后残留半成品被误判为已下载
+            with open(tmp_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=16384):
                     f.write(chunk)
-        print(f"{name} 下载成功!")
-        if name == 'buffalo_l.zip':
-            extract_zip(local_path,"/content/roop/checkpoints/models/buffalo_l")
+            os.replace(tmp_path, local_path)
+            print(f"{name} 下载成功!")
+        except Exception as e:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            raise RuntimeError(f"{name} 下载失败: {e}") from e
+
+    if name == 'buffalo_l.zip':
+        try:
+            extract_zip(local_path, "/content/roop/checkpoints/models/buffalo_l")
             print(f"{name} 解压成功!")
-    except Exception as e:
-        print(f"{name} 文件下载错误：{e}")
+        except Exception as e:
+            raise RuntimeError(f"{name} 解压失败: {e}") from e
 
 def download_all_models(models_info):
+    # [修复] 收集 future 并检查异常，避免下载失败被 ThreadPool 静默吞掉
+    errors = []
     with ThreadPoolExecutor(max_workers=10) as executor:
-        for info in models_info:
-            executor.submit(download_model, *info)
+        futures = [executor.submit(download_model, *info) for info in models_info]
+        for info, future in zip(models_info, futures):
+            try:
+                future.result()
+            except Exception as e:
+                errors.append(str(e))
+                print(f"❌ {info[1]}: {e}")
+    if errors:
+        raise RuntimeError(f"共 {len(errors)} 个模型处理失败，请查看上方日志")
 
 def extract_zip(zip_file_path, extract_path):
+    # [修复] 解压失败不再静默，向上抛出由调用方统一汇总
     try:
         with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
             zip_ref.extractall(extract_path)
     except Exception as e:
-        print(f"解压 {zip_file_path} 错误: {e}")
+        raise RuntimeError(f"解压 {zip_file_path} 失败: {e}") from e
 
 # -- 修复degradations 3s
 def fix():
@@ -159,27 +184,22 @@ def fix():
 # -- 安装依赖 25s
 def install_dependencies():
     # 拆分较长的命令，避免一次性安装过多包导致冲突
+    # [优化] 4 个 nvidia-cu12 包由 prepare_cuda_environment() 统一安装并在失败时抛错，此处不再重复
     commands = [
-        # CUDA 12 运行库
-        'pip install --progress-bar off --quiet --no-cache-dir nvidia-cuda-nvrtc-cu12',
-        'pip install --progress-bar off --quiet --no-cache-dir nvidia-cuda-runtime-cu12',
-        'pip install --progress-bar off --quiet --no-cache-dir nvidia-cublas-cu12',
-        'pip install --progress-bar off --quiet --no-cache-dir nvidia-cudnn-cu12',
-        # ONNX Runtime GPU
-         'pip install --progress-bar off --quiet onnxruntime-gpu==1.20.2',
-        # ONNX
+        'pip install --progress-bar off --quiet onnxruntime-gpu==1.20.2',
         'pip install --progress-bar off --quiet onnx',
-        #other
+
         'pip install --progress-bar off --quiet insightface==0.7.3',
         'pip install --progress-bar off --quiet tk==0.1.0',
         'pip install --progress-bar off --quiet customtkinter==5.2.0',
+
         'pip install --progress-bar off --quiet --no-build-isolation git+https://github.com/Disty0/BasicSR.git@master',
         'pip install --progress-bar off --quiet --no-build-isolation --no-deps git+https://github.com/Disty0/GFPGAN.git@master',
         'pip install --progress-bar off --quiet facexlib',
         'pip install --progress-bar off --quiet "protobuf>=6.31.1"',
         'pip install --progress-bar off --quiet --no-cache-dir -I tkinterdnd2-universal==1.7.3 tkinterdnd2==0.3.0'
     ]
-    
+
     for cmd in commands:
         # 执行命令并捕获 stdout 和 stderr
         result = subprocess.run(
@@ -199,9 +219,9 @@ def install_dependencies():
             print(f"✅ {packages} 安装成功")
         else:
             print(f"❌ {packages} 安装失败！")
-            print(f"错误信息：\n{result.stderr}")  # 显示详细错误
-            # 可选：遇到失败即停止（避免后续依赖受影响）
-            # return
+            print("错误信息：")
+            print(result.stderr)
+
             
 # -- 手机保持运行 1s
 def mobile_keepalive(opt):
@@ -278,7 +298,17 @@ from base64 import b64encode
 
 def clean_url(url):
     parsed = urlparse(url)
+    # [修复] 保留 query：Google Drive 的 ?id=&export=download、Dropbox 的 ?dl=1 依赖 query 才能下载
+    if parsed.query:
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{parsed.query}"
     return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+
+def format_size_limit_msg(size_bytes, max_file_size):
+    return (
+        f"文件过大！当前文件大小: {size_bytes / (1024 * 1024):.2f} MB，"
+        f"最大允许大小: {max_file_size / (1024 * 1024)} MB。"
+        f"建议：1. 使用网盘分享链接；2. 压缩文件；3. 选择更小的媒体文件。"
+    )
 
 def generate_unique_path(base_path):
     counter = 1
@@ -301,20 +331,43 @@ def download_media(url, target_folder, max_file_size=100 * 1024 * 1024, max_retr
                 'Connection': 'keep-alive',
                 'Upgrade-Insecure-Requests': '1'
             }
-            head_response = requests.head(cleaned, headers=headers, allow_redirects=True)
-            head_response.raise_for_status()
-            content_length = int(head_response.headers.get('Content-Length', 0))
-            if content_length > max_file_size:
-                file_size_mb = content_length / (1024 * 1024)
-                raise ValueError(f"文件过大！当前文件大小: {file_size_mb:.2f} MB，最大允许大小: {max_file_size / (1024 * 1024)} MB。建议：1. 使用网盘分享链接；2. 压缩文件；3. 选择更小的媒体文件。")
+            # [修复] HEAD 只用于提前拦截超大文件；站点不支持 HEAD(405) 时不再直接失败，降级为流式判断
+            try:
+                head_response = requests.head(cleaned, headers=headers, allow_redirects=True, timeout=30)
+                head_response.raise_for_status()
+                try:
+                    content_length = int(head_response.headers.get('Content-Length', 0) or 0)
+                except (TypeError, ValueError):
+                    content_length = 0
+                if content_length > max_file_size:
+                    raise ValueError(format_size_limit_msg(content_length, max_file_size))
+            except requests.exceptions.RequestException:
+                pass
+
             response = requests.get(cleaned, headers=headers, stream=True, timeout=60, allow_redirects=True)
             response.raise_for_status()
-            media_path = Path(target_folder) / Path(cleaned).name
+            # [修复] URL 以 / 结尾时 basename 为空，会导致下面的 open() 打开目录，故做兜底
+            file_name = os.path.basename(urlparse(cleaned).path) or 'downloaded_media'
+            media_path = Path(target_folder) / file_name
             media_path.parent.mkdir(parents=True, exist_ok=True)
+            # [修复] 流式写入时实时累计，防止缺少 Content-Length 时大小限制被绕过
+            downloaded = 0
             with open(media_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=32768):
-                    if chunk:
-                        f.write(chunk)
+                    if not chunk:
+                        continue
+                    downloaded += len(chunk)
+                    if downloaded > max_file_size:
+                        break
+                    f.write(chunk)
+
+            if downloaded > max_file_size:
+                try:
+                    os.remove(media_path)
+                except OSError:
+                    pass
+                raise ValueError(format_size_limit_msg(downloaded, max_file_size))
+
             return media_path
         except requests.exceptions.RequestException as e:
             if attempt < max_retries - 1:
@@ -357,13 +410,20 @@ def convert_video_format(media_path, target_folder):
     if media_path.suffix.lower() == '.mp4':
         return media_path
     new_path = generate_unique_path(Path(target_folder) / f"{media_path.stem}.mp4")
+    video = None
     try:
         video = mp.VideoFileClip(str(media_path))
         video.write_videofile(str(new_path), codec='libx264')
-        video.close()
         return new_path
     except Exception as e:
         raise RuntimeError(f"视频格式转换失败: {e}") from e
+    finally:
+        # [修复] 无论成功失败都释放句柄，避免 ffmpeg 子进程残留
+        if video is not None:
+            try:
+                video.close()
+            except Exception:
+                pass
 
 def convert_media_format(media_path, target_folder, image_extensions=('.jpg', '.png', '.jpeg', '.gif', '.bmp', '.webp'), video_extensions=('.mp4', '.avi', '.mov', '.mkv')):
     if not media_path:
@@ -383,25 +443,41 @@ def display_image(media_path):
 def display_video(media_path, preview_duration=10):
     preview_path = str(media_path).replace('.mp4', '_preview.mp4')
     try:
+        # [修复] 加 -y：同名残留文件会让 ffmpeg 在 stdin 等待确认而卡死
         subprocess.run([
-            'ffmpeg',
+            'ffmpeg', '-y',
             '-i', str(media_path),
             '-t', str(preview_duration),
             '-c', 'copy',
             preview_path
         ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except subprocess.CalledProcessError:
-        subprocess.run([
-            'ffmpeg',
-            '-i', str(media_path),
-            '-t', str(preview_duration),
-            '-c:v', 'libx264',
-            '-c:a', 'aac',
-            preview_path
-        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    with open(preview_path, 'rb') as f:
-        video_data = f.read()
-    os.remove(preview_path)
+        # [修复] 降级重编码失败时同样清理预览文件，避免留下脏文件干扰下次调用
+        try:
+            subprocess.run([
+                'ffmpeg', '-y',
+                '-i', str(media_path),
+                '-t', str(preview_duration),
+                '-c:v', 'libx264',
+                '-c:a', 'aac',
+                preview_path
+            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError as e:
+            if os.path.exists(preview_path):
+                try:
+                    os.remove(preview_path)
+                except OSError:
+                    pass
+            raise RuntimeError(f"生成视频预览失败: {e}") from e
+    try:
+        with open(preview_path, 'rb') as f:
+            video_data = f.read()
+    finally:
+        if os.path.exists(preview_path):
+            try:
+                os.remove(preview_path)
+            except OSError:
+                pass
     data_url = "data:video/mp4;base64," + b64encode(video_data).decode()
     display(HTML(f'''
     <video width=300 height=200 controls>  
@@ -410,13 +486,15 @@ def display_video(media_path, preview_duration=10):
     '''))
 
 def display_media(source, show_media=True, save_to_path=1, preview_duration=10):
-    target_folder = None
-    if save_to_path == 1:
-        target_folder = Path("/content/source")
-    elif save_to_path == 2:
-        target_folder = Path("/content/target")
-    target_folder.mkdir(exist_ok=True)
     try:
+        # [修复] save_to_path 分支移入 try 并补齐 else，避免 target_folder 为 None 时抛 AttributeError
+        if save_to_path == 1:
+            target_folder = Path("/content/source")
+        elif save_to_path == 2:
+            target_folder = Path("/content/target")
+        else:
+            raise ValueError("save_to_path 参数的值必须为 1 或 2！")
+        target_folder.mkdir(parents=True, exist_ok=True)
         media_path = get_media(source, save_to_path)
         media_path = convert_media_format(media_path, target_folder)
         if show_media:
@@ -429,28 +507,39 @@ def display_media(source, show_media=True, save_to_path=1, preview_duration=10):
         print(e)
         return None
 
-# -- star
-download_all_models(models_info)
-install_dependencies()
-prepare_cuda_environment()
-fix()
 # ===== [patch] 屏蔽 roop GUI，避免 tkinterdnd2/tix 在 py3.13 崩溃 =====
 def patch_core():
     core = Path('/content/roop/roop/core.py')
     if not core.exists():
         print('未找到 core.py，跳过 headless 补丁')
         return
-    s = core.read_text()
-    ui_block = '''# [patch] headless
-class _NoUI:
-    def __getattr__(self, _n):
-        return lambda *_a, **_k: None
-ui = _NoUI()'''
-    for v in ["import roop.ui as ui", "import roop.ui", "from roop import ui"]:
-        if v in s:
-            s = s.replace(v, ui_block)
+    # [修复] 按被替换行的实际缩进逐行对齐注入，避免目标 import 被缩进时报 IndentationError
+    ui_block_lines = [
+        '# [patch] headless',
+        'class _NoUI:',
+        '    def __getattr__(self, _n):',
+        '        return lambda *_a, **_k: None',
+        'ui = _NoUI()',
+    ]
+    targets = ["import roop.ui as ui", "import roop.ui", "from roop import ui"]
+    lines = core.read_text().splitlines(keepends=True)
+    patched = False
+    for index, line in enumerate(lines):
+        if line.strip() in targets:
+            indent = line[:len(line) - len(line.lstrip())]
+            line_ending = line[len(line.rstrip()):] or '\n'
+            lines[index] = '\n'.join(indent + text for text in ui_block_lines) + line_ending
+            patched = True
             break
-    core.write_text(s)
+    if not patched:
+        print('未找到 roop.ui 的 import 语句，跳过替换')
+        return
+    core.write_text(''.join(lines))
     print('[patch] core.py 已补丁(headless)')
 
+# -- star
+download_all_models(models_info)
+install_dependencies()
+prepare_cuda_environment()
+fix()
 patch_core()
