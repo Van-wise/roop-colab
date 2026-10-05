@@ -196,7 +196,7 @@ def install_dependencies():
         'pip install --progress-bar off --quiet --no-build-isolation git+https://github.com/Disty0/BasicSR.git@master',
         'pip install --progress-bar off --quiet --no-build-isolation --no-deps git+https://github.com/Disty0/GFPGAN.git@master',
         'pip install --progress-bar off --quiet facexlib',        
-        'pip install --progress-bar off --quiet --no-cache-dir -I tkinterdnd2-universal==1.7.3 tkinterdnd2==0.3.0'
+        'pip install --progress-bar off --quiet --no-cache-dir -I tkinterdnd2-universal==1.7.3 tkinterdnd2==0.3.0',
         'pip install --progress-bar off --quiet --no-cache-dir --force-reinstall "protobuf==6.31.1"',
 
     ]
@@ -538,9 +538,37 @@ def patch_core():
     core.write_text(''.join(lines))
     print('[patch] core.py 已补丁(headless)')
 
+
+def patch_onnxruntime_session():
+    core = Path('/content/roop/roop/core.py')
+    if not core.exists():
+        print('未找到 core.py，跳过 ORT 补丁')
+        return
+    text = core.read_text()
+    marker = '# [patch] ort-cuda'
+    if marker in text:
+        print('ORT 补丁已存在')
+        return
+    block = '''# [patch] ort-cuda
+import onnxruntime as _ort
+_orig_init = _ort.InferenceSession.__init__
+def _patched_init(self, path_or_bytes, sess_options=None, providers=None, provider_options=None, **kw):
+    providers = [("CUDAExecutionProvider", {
+        "cudnn_conv_algo_search": "DEFAULT",
+        "cudnn_conv_use_max_workspace": "0",
+        "use_tf32": "0",
+    })]
+    _orig_init(self, path_or_bytes, sess_options=sess_options, providers=providers, **kw)
+_ort.InferenceSession.__init__ = _patched_init
+'''
+    core.write_text(block + text)
+    print('[patch] core.py 已注入 ORT CUDA 补丁')
+
 # -- star
 prepare_cuda_environment()
 install_dependencies()
 fix()
 patch_core()
+patch_onnxruntime_session()
 download_all_models(models_info)
+
