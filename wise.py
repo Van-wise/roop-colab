@@ -564,11 +564,54 @@ _ort.InferenceSession.__init__ = _patched_init
     core.write_text(block + text)
     print('[patch] core.py 已注入 ORT CUDA 补丁')
 
+# 
+def patch_gfpgan_gpu_noise():
+    candidates = glob.glob(
+        "/usr/local/lib/python*/dist-packages/gfpgan/archs/stylegan2_clean_arch.py"
+    ) + glob.glob(
+        "/usr/local/lib/python*/site-packages/gfpgan/archs/stylegan2_clean_arch.py"
+    )
+
+    if not candidates:
+        print("未找到 GFPGAN stylegan2_clean_arch.py")
+        return
+
+    path = Path(candidates[0])
+    text = path.read_text()
+
+    original = "noise = out.new_empty(b, 1, h, w).normal_()"
+    cpu_patch = (
+        "noise = torch.randn("
+        "b, 1, h, w"
+        ").to(device=out.device, dtype=out.dtype)  # [patch] cpu-noise"
+    )
+    gpu_patch = (
+        "noise = torch.rand("
+        "b, 1, h, w, device=out.device, dtype=out.dtype"
+        ") * 2.0 - 1.0  # [patch] gpu-uniform-noise"
+    )
+
+    if "# [patch] gpu-uniform-noise" in text:
+        print("GFPGAN GPU 噪声补丁已存在")
+        return
+
+    if original in text:
+        text = text.replace(original, gpu_patch, 1)
+    elif cpu_patch in text:
+        text = text.replace(cpu_patch, gpu_patch, 1)
+    else:
+        print("未找到 GFPGAN 噪声生成代码")
+        return
+
+    path.write_text(text)
+    print(f"已写入 GFPGAN GPU 噪声补丁：{path}")
+
 # -- star
 prepare_cuda_environment()
 install_dependencies()
 fix()
 patch_core()
 patch_onnxruntime_session()
+patch_gfpgan_gpu_noise()
 download_all_models(models_info)
 
